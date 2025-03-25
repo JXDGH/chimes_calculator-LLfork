@@ -500,12 +500,18 @@ void PairCHIMES::compute(int eflag, int vflag)
 			// Using std::fill for maximum efficiency.
 			std::fill(force_2b.begin(), force_2b.end(), 0.0) ;
 
-			// Do the same for stress tensors
-			std::fill(stensor.begin(), stensor.end(), 0.0) ;
+			
 
-			energy = 0.0;	
-		
-			chimes_calculator.compute_2B( dist, dr, typ_idxs_2b, force_2b, stensor, energy, chimes_2btmp, fscalar[0]);
+			energy = 0.0;
+
+			if(vflag_atom)
+			{
+				// Do the same for stress tensors
+				std::fill(stensor.begin(), stensor.end(), 0.0) ;
+				chimes_calculator.compute_2B( dist, dr, typ_idxs_2b, force_2b, stensor, energy, chimes_2btmp, fscalar[0]);
+			} else {
+				chimes_calculator.compute_2B_NoStress( dist, dr, typ_idxs_2b, force_2b, energy, chimes_2btmp, fscalar[0]);
+			}
 			
 			for (idx=0; idx<3; idx++)
 			{
@@ -550,18 +556,26 @@ void PairCHIMES::compute(int eflag, int vflag)
 			typ_idxs_3b[2] = chimes_type[type[k]-1];
 
 			std::fill(force_3b.begin(), force_3b.end(), 0.0) ;
-			std::fill(stensor.begin(), stensor.end(), 0.0) ;
 
-			std::fill(stensor0.begin(), stensor0.end(), 0.0) ;
-			std::fill(stensor1.begin(), stensor1.end(), 0.0) ;
-			std::fill(stensor2.begin(), stensor2.end(), 0.0) ;
 
 				
 			energy = 0.0 ;
 			
-			chimes_calculator.compute_3B( dist_3b, dr_3b, typ_idxs_3b, force_3b, stensor, stensor0, stensor1, stensor2, energy, chimes_3btmp, fscalar);
+			
 
-			std::vector<std::vector<double>> combined = {stensor0, stensor1, stensor2};
+			if(vflag_atom)
+			{
+				// Do the same for stress tensors
+				std::fill(stensor.begin(), stensor.end(), 0.0) ;
+				std::fill(stensor0.begin(), stensor0.end(), 0.0) ;
+				std::fill(stensor1.begin(), stensor1.end(), 0.0) ;
+				std::fill(stensor2.begin(), stensor2.end(), 0.0) ;
+				chimes_calculator.compute_3B( dist_3b, dr_3b, typ_idxs_3b, force_3b, stensor, stensor0, stensor1, stensor2, energy, chimes_3btmp, fscalar);
+			} else {
+				chimes_calculator.compute_3B_NoStress( dist_3b, dr_3b, typ_idxs_3b, force_3b, energy, chimes_3btmp, fscalar);
+			}
+
+			
 
 			// fscalar2 = force_scalar;
 
@@ -582,8 +596,10 @@ void PairCHIMES::compute(int eflag, int vflag)
 			    atmidxlst[2][1] = k;
             }
 			
-			if (evflag)
-				ev_tally_mb2(3, atmidxlst, energy, combined, dist_3b, dr_3b);		            
+			if (evflag){
+				std::vector<std::vector<double>> combined = {stensor0, stensor1, stensor2};
+				ev_tally_mb2(3, atmidxlst, energy, combined, dist_3b, dr_3b);
+			}		            
 		}		
 	}
 
@@ -613,20 +629,27 @@ void PairCHIMES::compute(int eflag, int vflag)
 			typ_idxs_4b[3] = chimes_type[type[l]-1];
 
 			std::fill(force_4b.begin(), force_4b.end(), 0.0) ;
-			std::fill(stensor.begin(), stensor.end(), 0.0) ;
-
-			std::fill(stensor0.begin(), stensor0.end(), 0.0) ;
-			std::fill(stensor1.begin(), stensor1.end(), 0.0) ;
-			std::fill(stensor2.begin(), stensor2.end(), 0.0) ;
-			std::fill(stensor3.begin(), stensor3.end(), 0.0) ;
-			std::fill(stensor4.begin(), stensor4.end(), 0.0) ;
-			std::fill(stensor5.begin(), stensor5.end(), 0.0) ;
 
 			energy = 0.0 ;	
 			
-			chimes_calculator.compute_4B( dist_4b, dr_4b, typ_idxs_4b, force_4b, stensor, stensor0, stensor1, stensor2, stensor3, stensor4, stensor5, energy, chimes_4btmp, fscalar);
 
-			std::vector<std::vector<double>> combined2 = {stensor0, stensor1, stensor2, stensor3, stensor4, stensor5};
+
+			if(vflag_atom)
+			{
+				// Do the same for stress tensors
+				std::fill(stensor.begin(), stensor.end(), 0.0) ;
+				std::fill(stensor0.begin(), stensor0.end(), 0.0) ;
+				std::fill(stensor1.begin(), stensor1.end(), 0.0) ;
+				std::fill(stensor2.begin(), stensor2.end(), 0.0) ;
+				std::fill(stensor3.begin(), stensor3.end(), 0.0) ;
+				std::fill(stensor4.begin(), stensor4.end(), 0.0) ;
+				std::fill(stensor5.begin(), stensor5.end(), 0.0) ;
+				chimes_calculator.compute_4B( dist_4b, dr_4b, typ_idxs_4b, force_4b, stensor, stensor0, stensor1, stensor2, stensor3, stensor4, stensor5, energy, chimes_4btmp, fscalar);
+			} else {
+				chimes_calculator.compute_4B_NoStress( dist_4b, dr_4b, typ_idxs_4b, force_4b, energy, chimes_4btmp, fscalar);
+			}
+
+			
 
 			for (idx=0; idx<3; idx++)
 			{
@@ -652,8 +675,10 @@ void PairCHIMES::compute(int eflag, int vflag)
 			    atmidxlst[5][1] = l;
             }
 			
-			if (evflag)
+			if (evflag){
+				std::vector<std::vector<double>> combined2 = {stensor0, stensor1, stensor2, stensor3, stensor4, stensor5};
 				ev_tally_mb2(6, atmidxlst, energy, combined2, dist_4b, dr_4b);	
+			}
             
 		}
 	}
