@@ -156,11 +156,12 @@ public:
 	void compute_2B(const double dx, const vector<double> & dr, const vector<int> typ_idxs, vector<double> & force, vector<double> & stress, double & energy, chimes2BTmp &tmp);
 	void compute_2B(const double dx, const vector<double> & dr, const vector<int> typ_idxs, vector<double> & force, vector<double> & stress, double & energy, chimes2BTmp &tmp, double & force_scalar_in); 
 
-	void compute_3B(const vector<double> & dx, const vector<double> & dr, const vector<int> & typ_idxs, vector<double> & force,vector<double> & stress, double & energy, chimes3BTmp &tmp);
-	void compute_3B(const vector<double> & dx, const vector<double> & dr, const vector<int> & typ_idxs, vector<double> & force,vector<double> & stress, double & energy, chimes3BTmp &tmp, vector<double> & force_scalar_in); 
+	void compute_3B(const vector<double> & dx, const vector<double> & dr, const vector<int> & typ_idxs, vector<double> & force,vector<double> & stress, vector<double> & stress0, vector<double> & stress1, vector<double> & stress2, double & energy, chimes3BTmp &tmp);
+	void compute_3B(const vector<double> & dx, const vector<double> & dr, const vector<int> & typ_idxs, vector<double> & force,vector<double> & stress, vector<double> & stress0, vector<double> & stress1, vector<double> & stress2, double & energy, chimes3BTmp &tmp, vector<double> & force_scalar_in); 
 
-	void compute_4B(const vector<double> & dx, const vector<double> & dr, const vector<int> & typ_idxs, vector<double> & force, vector<double> & stress, double & energy, chimes4BTmp &tmp);
-	void compute_4B(const vector<double> & dx, const vector<double> & dr, const vector<int> & typ_idxs, vector<double> & force, vector<double> & stress, double & energy, chimes4BTmp &tmp, vector<double> & force_scalar_in);
+	void compute_4B(const vector<double> & dx, const vector<double> & dr, const vector<int> & typ_idxs, vector<double> & force, vector<double> & stress, vector<double> & stress0, vector<double> & stress1, vector<double> & stress2, vector<double> & stress3, vector<double> & stress4, vector<double> & stress5, double & energy, chimes4BTmp &tmp);
+	void compute_4B(const vector<double> & dx, const vector<double> & dr, const vector<int> & typ_idxs, vector<double> & force, vector<double> & stress, vector<double> & stress0, vector<double> & stress1, vector<double> & stress2, vector<double> & stress3, vector<double> & stress4, vector<double> & stress5, double & energy, chimes4BTmp &tmp, vector<double> & force_scalar_in);
+
 
     void get_cutoff_2B(vector<vector<double> >  & cutoff_2b);   // Populates the 2b cutoffs
     
@@ -174,11 +175,6 @@ public:
     void build_pair_int_trip_map() ;
     void build_pair_int_quad_map() ;
     
-    // Functions to aid using ChIMES Calculator for fitting
-    
-    inline int  get_badness();
-    inline void reset_badness();
-    
 private:
         
     string            xform_style;    //  Morse, direct, inverse, etc...
@@ -188,7 +184,6 @@ private:
     vector<double>    morse_var;      // [npairs]; morse_lambda
     vector<double>    penalty_params; // [2];  Second dimension: [0] = A_pen, [1] = d_pen
     vector<double>    energy_offsets; // [natmtyps]; Single atom ChIMES energies
-    int               badness;        // Keeps track of whether any interactions for atoms owned by proc rank are below rcutin, in the penalty region, or in the r>rcutin+dp region. 0 = good, 1 = in penalty region, 2 = below rcutin 
         
     // Names (chemical symbols for constituent atoms) .. handled differently for 2-body versus >2-body interactions
 
@@ -260,7 +255,7 @@ private:
 
     // Tools for compute functions
         
-	inline void set_cheby_polys(vector<double> &Tn, vector<double> &Tnd, double dx, const double morse,
+    inline void set_cheby_polys(vector<double> &Tn, vector<double> &Tnd, double dx, const double morse,
                                 const double inner_cutoff, const double outer_cutoff, const int order) ;
 
 	void set_polys_out_of_range(vector<double> &Tn, vector<double> &Tnd, double dx, double x,
@@ -338,47 +333,32 @@ inline void chimesFF::get_fcut(const double dx, const double outer_cutoff, doubl
     }
 }
 
-inline void chimesFF::get_penalty(const double dx, const int & pair_idx, double & E_penalty, double & force_scalar)
+inline void chimesFF::get_penalty(const double dx, const int & pair_idx, double & E_penalty, double & force_scalar2)
 {
     double r_penalty = 0.0;
     
     E_penalty    = 0.0;
-    force_scalar = 1.0;
-
-    if (dx - penalty_params[0] < chimes_2b_cutoff[pair_idx][0]) // Then we're within the penalty-enforced region of distance space
-    {    
+    force_scalar2 = 1.0;
+    
+    if (dx - penalty_params[0] < chimes_2b_cutoff[pair_idx][0])
+        
         r_penalty = chimes_2b_cutoff[pair_idx][0] + penalty_params[0] - dx;
         
-        if(dx < chimes_2b_cutoff[pair_idx][0])
-            badness = 2;
-        else if (1 > badness) // Only update badness if candiate badness is worse than its current value
-            badness = 1;
-    }    
     if ( r_penalty > 0.0 ) 
     {        
         E_penalty    = r_penalty * r_penalty * r_penalty * penalty_params[1];
 
-        force_scalar = -3.0 * r_penalty * r_penalty * penalty_params[1];
+        force_scalar2 = -3.0 * r_penalty * r_penalty * penalty_params[1];
 
-        //if (rank == 0) // Commenting out - we need all ranks to report if the penalty function has been sampled
-        //{
+        if (rank == 0)
+        {
             cout << "chimesFF: " << "Adding penalty in 2B Cheby calc, r < rmin+penalty_dist " << fixed 
                  << dx << " " 
                  << chimes_2b_cutoff[pair_idx][0] + penalty_params[0]  
                  << " pair type: " << pair_idx << endl;
             cout << "chimesFF: " << "\t...Penalty potential = "<< E_penalty << endl;
-        //}
+        }
     }   
-}
-
-inline int chimesFF::get_badness()
-{
-    return badness;
-}
-
-inline void chimesFF::reset_badness()
-{
-    badness = 0;
 }
 
 inline void chimesFF::build_atom_and_pair_mappers(const int natoms, const int npairs, const vector<int> & typ_idxs,
@@ -501,19 +481,18 @@ inline void chimesFF::set_cheby_polys(vector<double> &Tn, vector<double> &Tnd, d
     // with respect to the interatomic distance, not the transformed distance (x).
     
     // Do the Morse transformation
-
-
-     double x_min = exp(-1*inner_cutoff/morse);
-     double x_max = exp(-1*outer_cutoff/morse);
     
-     double x_avg   = 0.5 * (x_max + x_min);
-     double x_diff  = 0.5 * (x_max - x_min);
+    double x_min = exp(-1*inner_cutoff/morse);
+    double x_max = exp(-1*outer_cutoff/morse);
+    
+    double x_avg   = 0.5 * (x_max + x_min);
+    double x_diff  = 0.5 * (x_max - x_min);
 	
     x_diff *= -1.0; // Special for Morse style
 
 
-     bool out_of_range ;
-     double dx_orig = dx ;
+    bool out_of_range ;
+    double dx_orig = dx ;
 
 	//  The case dx > outer_cutoff is not treated, because it is assumed that the outer smoothing
     //  function will be zero for dx > outer_cutoff.
@@ -525,9 +504,9 @@ inline void chimesFF::set_cheby_polys(vector<double> &Tn, vector<double> &Tnd, d
     else
         out_of_range = false ;
     
-	 double exprlen = exp(-1*dx/morse);
-	 double x  = (exprlen - x_avg)/x_diff;
-	 double dx_dr = (-exprlen/morse)/x_diff;		
+	double exprlen = exp(-1*dx/morse);
+	double x  = (exprlen - x_avg)/x_diff;
+	double dx_dr = (-exprlen/morse)/x_diff;		
 
     if ( ! out_of_range )
     {
@@ -572,8 +551,8 @@ inline void chimesFF::set_cheby_polys(vector<double> &Tn, vector<double> &Tnd, d
     }
     else // out_of_range == true
     {
-		cout << "Warning: An intermolecular distance less than the inner cutoff = " << inner_cutoff << " was found\n " ;
-		cout << "         Distance = " << dx_orig << endl ;
+		// cout << "Warning: An intermolecular distance less than the inner cutoff = " << inner_cutoff << " was found\n " ;
+		// cout << "         Distance = " << dx_orig << endl ;
 
 		set_polys_out_of_range(Tn, Tnd, dx_orig, x, order, inner_cutoff, exprlen, dx_dr) ;
     }        
