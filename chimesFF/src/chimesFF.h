@@ -155,12 +155,15 @@ public:
 
 	void compute_2B(const double dx, const vector<double> & dr, const vector<int> typ_idxs, vector<double> & force, vector<double> & stress, double & energy, chimes2BTmp &tmp);
 	void compute_2B(const double dx, const vector<double> & dr, const vector<int> typ_idxs, vector<double> & force, vector<double> & stress, double & energy, chimes2BTmp &tmp, double & force_scalar_in); 
+	void compute_2B_NoStress(const double dx, const vector<double> & dr, const vector<int> typ_idxs, vector<double> & force, double & energy, chimes2BTmp &tmp, double & force_scalar_in);
 
 	void compute_3B(const vector<double> & dx, const vector<double> & dr, const vector<int> & typ_idxs, vector<double> & force,vector<double> & stress, vector<double> & stress0, vector<double> & stress1, vector<double> & stress2, double & energy, chimes3BTmp &tmp);
 	void compute_3B(const vector<double> & dx, const vector<double> & dr, const vector<int> & typ_idxs, vector<double> & force,vector<double> & stress, vector<double> & stress0, vector<double> & stress1, vector<double> & stress2, double & energy, chimes3BTmp &tmp, vector<double> & force_scalar_in); 
+	void compute_3B_NoStress(const vector<double> & dx, const vector<double> & dr, const vector<int> & typ_idxs, vector<double> & force, double & energy, chimes3BTmp &tmp, vector<double> & force_scalar_in); 
 
 	void compute_4B(const vector<double> & dx, const vector<double> & dr, const vector<int> & typ_idxs, vector<double> & force, vector<double> & stress, vector<double> & stress0, vector<double> & stress1, vector<double> & stress2, vector<double> & stress3, vector<double> & stress4, vector<double> & stress5, double & energy, chimes4BTmp &tmp);
 	void compute_4B(const vector<double> & dx, const vector<double> & dr, const vector<int> & typ_idxs, vector<double> & force, vector<double> & stress, vector<double> & stress0, vector<double> & stress1, vector<double> & stress2, vector<double> & stress3, vector<double> & stress4, vector<double> & stress5, double & energy, chimes4BTmp &tmp, vector<double> & force_scalar_in);
+	void compute_4B_NoStress(const vector<double> & dx, const vector<double> & dr, const vector<int> & typ_idxs, vector<double> & force, double & energy, chimes4BTmp &tmp, vector<double> & force_scalar_in);
 
 
     void get_cutoff_2B(vector<vector<double> >  & cutoff_2b);   // Populates the 2b cutoffs
