@@ -34,12 +34,10 @@
 #include "error.h"
 #include "pair_chimes.h"
 #include "group.h"
-#include "update.h" // Needed for mb neighlist updates and info printing for fitting
-#include "output.h" // Needed for infor printing for fitting -- dump 1 must be the "main" dump file used for fitting
-#include  "utils.h" // Needed for infor printing for fitting
+#include "update.h"
+
 #include <vector>
 #include <iostream>
-#include <sstream>
 
 using namespace LAMMPS_NS;
 
@@ -56,9 +54,9 @@ init_style 	(done)		initialization specific to this pair style
 
 write_restart			write i,j pair coeffs to restart file
 read_restart			read i,j pair coeffs from restart file
-write_restart_settings	write global settings to restart file
-read_restart_settings	read global settings from restart file
-single				    force and energy fo a single pairwise interaction between two atoms
+write_restart_settings		write global settings to restart file
+read_restart_settings		read global settings from restart file
+single				force and energy fo a single pairwise interaction between two atoms
 */
 
 
@@ -69,8 +67,7 @@ PairCHIMES::PairCHIMES(LAMMPS *lmp) : Pair(lmp)
 	int me = comm->me;
 	MPI_Comm_rank(world,&me);
 	
-	chimes_calculator.init(me);  
-    for_fitting = false;
+	chimes_calculator.init(me);
 	
 	// 2, 3, and 4-body vars for chimesFF access
 
@@ -113,26 +110,12 @@ PairCHIMES::~PairCHIMES()
 	    memory->destroy(setflag);
 	    memory->destroy(cutsq);
 	}
-    
-    if (badness_stream.is_open())
-        badness_stream.close();
 }	
 
 void PairCHIMES::settings(int narg, char **arg)
 {
-	if (narg > 1) 
-		error -> all(FLERR,"Illegal pair_style command. Expects no more than one arguments (string: fitting)");
-        
-    if (narg == 1) 
-    {  
-        if (utils::strmatch(arg[0],"fitting"))
-        {
-            for_fitting   = true;
-            stringstream ss;
-            ss << chimes_calculator.rank;
-            badness_stream.open("rank-" + ss.str() + ".badness.log");    
-        }
-    }
+	if (narg != 0) 
+		error -> all(FLERR,"Illegal pair_style command. Expects no arguments beyond pair_style name.");
 
 	return;	
 }
@@ -149,7 +132,6 @@ void PairCHIMES::coeff(int narg, char **arg)
 	chimes_calculator.read_parameters(chimesFF_paramfile);
 
 	set_chimes_type();
-    
     //chimes_calculator.set_atomtypes(chimes_type);
     chimes_calculator.build_pair_int_trip_map() ; 
     chimes_calculator.build_pair_int_quad_map() ;
@@ -208,10 +190,11 @@ void PairCHIMES::init_style()
 	// Set up neighbor lists... borrowing this from pair_airebo:
 	// need a full neighbor list, including neighbors of ghosts
 
-	int irequest = neighbor->request(this,instance_me);
-	neighbor->requests[irequest]->half = 0;
-	neighbor->requests[irequest]->full = 1;
-	neighbor->requests[irequest]->ghost = 1;
+	// int irequest = neighbor->request(this,instance_me);
+	// neighbor->requests[irequest]->half = 0;
+	// neighbor->requests[irequest]->full = 1;
+	// neighbor->requests[irequest]->ghost = 1;
+        neighbor->add_request(this, NeighConst::REQ_FULL | NeighConst::REQ_GHOST);
 }
 
 double PairCHIMES::init_one(int i, int j)
@@ -256,11 +239,11 @@ void PairCHIMES::build_mb_neighlists()
 	neighborlist_3mers.clear();
 	neighborlist_4mers.clear();
 	
-	int i,j,k,l,inum,jnum,knum,lnum, ii, jj, kk, ll;		 // Local iterator vars
-	int *ilist,*jlist,*klist,*llist, *numneigh,**firstneigh; // Local neighborlist vars
-	tagint 	*tag   = atom -> tag;					         // Access to global atom indices
-	int     itag, jtag, ktag, ltag;					         // holds tags	
-	double 	**x    = atom -> x;					             // Access to system coordinates
+	int i,j,k,l,inum,jnum,knum,lnum, ii, jj, kk, ll;		// Local iterator vars
+	int *ilist,*jlist,*klist,*llist, *numneigh,**firstneigh;	// Local neighborlist vars
+	tagint 	*tag   = atom -> tag;					// Access to global atom indices
+	int     itag, jtag, ktag, ltag;					// holds tags	
+	double 	**x    = atom -> x;					// Access to system coordinates
 	
 	double maxcut_3b_padded = maxcut_3b + neighbor-> skin;
 	double maxcut_4b_padded = maxcut_4b + neighbor-> skin;
@@ -271,12 +254,12 @@ void PairCHIMES::build_mb_neighlists()
 	// Access to neighbor list vars
 	////////////////////////////////////////
 
-	inum       = list -> inum; 		 // length of the list
-	ilist      = list -> ilist; 	 // list of i atoms for which neighbor list exists
-	numneigh   = list -> numneigh;	 // length of each of the ilist neighbor lists
-	firstneigh = list -> firstneigh; // point to the list of neighbors of i	
+	inum       = list -> inum; 		// length of the list
+	ilist      = list -> ilist; 		// list of i atoms for which neighbor list exists
+	numneigh   = list -> numneigh;		// length of each of the ilist neighbor lists
+	firstneigh = list -> firstneigh;	// point to the list of neighbors of i	
 	
-	for (ii = 0; ii < inum; ii++) // Loop over real atoms (ai)	
+	for (ii = 0; ii < inum; ii++)	// Loop over real atoms (ai)	
 	{
 		i     = ilist[ii];		
 		itag  = tag[i];			
@@ -400,54 +383,57 @@ void PairCHIMES::compute(int eflag, int vflag)
 	// Vars for access to chimesFF compute_XB functions
 	
 	std::vector  <double>  stensor(6);	// pointers to system stress tensor
+
+
+	// Hold the "partial" stress tensor from each of the three pairs in a 3B interaction
+	// Or six pairs in a 4B interaction
+			
+	std::vector  <double>  stensor0(6);
+	std::vector  <double>  stensor1(6);	
+	std::vector  <double>  stensor2(6);
+	std::vector  <double>  stensor3(6);
+	std::vector  <double>  stensor4(6);
+	std::vector  <double>  stensor5(6);
     
 	// Temp vars to hold chimes output for passing to ev_tally function
 	
-    std::vector<double>  fscalar(6);
-    std::vector<double>  tmp_dist(1);
-    std::vector<double>  tmp_dr(6);
-    int                  atmidxlst[6][2];
+    std::vector<double>         fscalar(6);
+    std::vector<double>         force_scalar(6);
+    std::vector<double>         tmp_dist(1);
+    std::vector<double>         tmp_dr(6);
+    int atmidxlst[6][2];
 	
 	// General LAMMPS compute vars
 	
-	int 	i,j,k,l,inum,jnum, ii, jj;	// Local iterator vars
+	int 	i,j,k,l,inum,jnum, ii, jj;		// Local iterator vars
 	int 	*ilist,*jlist, *numneigh,**firstneigh;	// Local neighborlist vars
 	int     idx;
 
-	double 	**x    = atom -> x;		    // Access to system coordinates
-	double 	**f    = atom -> f;		    // Access to system forces
+	double 	**x    = atom -> x;		// Access to system coordinates
+	double 	**f    = atom -> f;		// Access to system forces
 	
 	int 	*type  = atom -> type;		// Acces to system atom types (countng starts from 1, chimesFF class expects counting from 0!)
 	tagint 	*tag   = atom -> tag;		// Access to global atom indices (sort of like "parent" indices)
 	int     itag, jtag, ktag, ltag;		// holds tags
 	int 	nlocal = atom -> nlocal;	// Number of real atoms owned by current process .. used used to assure force assignments aren't duplicated
 	int 	newton_pair = force -> newton_pair;	// Should f_j be automatically set to -f_i (true) or manually calculated (false)
-	double  energy;				        // pair energy 
+	double  energy;				// pair energy 
 
 	int me = comm->me;
 	MPI_Comm_rank(world,&me);	
 	
 	// Set up vars controlling if energy/pressure (virial) contributions are computed
 
-	if (eflag || vflag) 
-	{
-  		ev_setup(eflag,vflag);
-	}
-	else 
-	{
-		evflag      = 0;
-		vflag_fdotr = 0;
-  		vflag_atom  = 0;
-	}
+	ev_init(eflag, vflag);
 
 	////////////////////////////////////////
 	// Access to (2-body) neighbor list vars
 	////////////////////////////////////////
 
-	inum       = list -> inum; 		 // length of the list
-	ilist      = list -> ilist; 	 // list of i atoms for which neighbor list exists
-	numneigh   = list -> numneigh;	 // length of each of the ilist neighbor lists
-	firstneigh = list -> firstneigh; // point to the list of neighbors of i
+	inum       = list -> inum; 		// length of the list
+	ilist      = list -> ilist; 		// list of i atoms for which neighbor list exists
+	numneigh   = list -> numneigh;		// length of each of the ilist neighbor lists
+	firstneigh = list -> firstneigh;	// point to the list of neighbors of i
 
 
     chimes2BTmp chimes_2btmp(chimes_calculator.poly_orders[0]) ;
@@ -458,21 +444,18 @@ void PairCHIMES::compute(int eflag, int vflag)
 	
 	if ( neighbor->ago == 0)
 	{
-		if (chimes_calculator.rank == 0)
-			std::cout << "Updating chimesFF neighbor lists..." << std::endl;
+		// if (chimes_calculator.rank == 0){
+			// std::cout << "Updating chimesFF neighbor lists..." << '\n';
+		// }
 			
 		build_mb_neighlists();		
-		if (chimes_calculator.rank == 0)
-		{
-			std::cout << "	Rank " << me << " 3-body list size: " << neighborlist_3mers.size() << std::endl;
-			std::cout << "	Rank " << me << " 4-body list size: " << neighborlist_4mers.size() << std::endl;
-			std::cout << "	...update complete" << std::endl;
-		}
+		// if (chimes_calculator.rank == 0)
+		// {
+			// std::cout << "	Rank " << me << " 3-body list size: " << neighborlist_3mers.size() << '\n';
+			// std::cout << "	Rank " << me << " 4-body list size: " << neighborlist_4mers.size() << '\n';
+			// std::cout << "	...update complete" << '\n';
+		// }
 	}
-    
-    // Prepare the badness variable
-    
-    chimes_calculator.reset_badness();
 
 	////////////////////////////////////////
 	// Compute 1- and 2-body interactions
@@ -497,7 +480,7 @@ void PairCHIMES::compute(int eflag, int vflag)
 
 		// Now move on to two-body force, stress, and energy
 		
-		for (jj = 0; jj < jnum; jj++) // Loop over neighbors of i
+		for (jj = 0; jj < jnum; jj++)			// Loop over neighbors of i
 		{
 			j     = jlist[jj];			// Index of the jj atom
 			jtag  = tag[j];				// Get j's global atom index (sort of like its "parent")
@@ -511,7 +494,7 @@ void PairCHIMES::compute(int eflag, int vflag)
 
 			dist = get_dist(i,j,&dr[0]);
 			
-			typ_idxs_2b[0] = chimes_type[type[i]-1]; // Type (index) of the current atom... subtract 1 to account for chimesFF vs LAMMPS numbering convention
+			typ_idxs_2b[0] = chimes_type[type[i]-1];		// Type (index) of the current atom... subtract 1 to account for chimesFF vs LAMMPS numbering convention
 			typ_idxs_2b[1] = chimes_type[type[j]-1];
 
 			// Using std::fill for maximum efficiency.
@@ -522,8 +505,8 @@ void PairCHIMES::compute(int eflag, int vflag)
 
 			energy = 0.0;	
 		
-			chimes_calculator.compute_2B( dist, dr, typ_idxs_2b, force_2b, stensor, energy, chimes_2btmp);	// Auto-updates badness		
-
+			chimes_calculator.compute_2B( dist, dr, typ_idxs_2b, force_2b, stensor, energy, chimes_2btmp, fscalar[0]);
+			
 			for (idx=0; idx<3; idx++)
 			{
 				f[i][idx] += force_2b[0*CHDIM+idx] ;
@@ -534,21 +517,17 @@ void PairCHIMES::compute(int eflag, int vflag)
 			// Compute pressure, (in contrast to chimes_md) AFTER penalty has been added		
 			
 			if(vflag_atom)
-            {
+			{
 			    atmidxlst[0][0] = i;
 			    atmidxlst[0][1] = j;
-            }
+			}
+
 			tmp_dist    [0] = dist;
 			
 			if (evflag)
-				ev_tally_mb(2, atmidxlst, energy, fscalar, tmp_dist, dr);         
+				ev_tally_mb(1, atmidxlst, energy, stensor, tmp_dist, dr);         
 		}
 	}
-    
-    // Document badness for configuration: current timestep, current rank, worst badness seen by rank
-    if (for_fitting)
-        if(update->ntimestep % output->every_dump[0] == 0)
-            badness_stream << update->ntimestep << " " <<  chimes_calculator.get_badness() << endl;
 
 	if (chimes_calculator.poly_orders[1] > 0)
 	{
@@ -572,10 +551,19 @@ void PairCHIMES::compute(int eflag, int vflag)
 
 			std::fill(force_3b.begin(), force_3b.end(), 0.0) ;
 			std::fill(stensor.begin(), stensor.end(), 0.0) ;
+
+			std::fill(stensor0.begin(), stensor0.end(), 0.0) ;
+			std::fill(stensor1.begin(), stensor1.end(), 0.0) ;
+			std::fill(stensor2.begin(), stensor2.end(), 0.0) ;
+
 				
 			energy = 0.0 ;
 			
-			chimes_calculator.compute_3B( dist_3b, dr_3b, typ_idxs_3b, force_3b, stensor, energy, chimes_3btmp);
+			chimes_calculator.compute_3B( dist_3b, dr_3b, typ_idxs_3b, force_3b, stensor, stensor0, stensor1, stensor2, energy, chimes_3btmp, fscalar);
+
+			std::vector<std::vector<double>> combined = {stensor0, stensor1, stensor2};
+
+			// fscalar2 = force_scalar;
 
 			for (idx=0; idx<3; idx++)
 			{
@@ -595,7 +583,7 @@ void PairCHIMES::compute(int eflag, int vflag)
             }
 			
 			if (evflag)
-				ev_tally_mb(3, atmidxlst, energy, fscalar, dist_3b, dr_3b);		            
+				ev_tally_mb2(3, atmidxlst, energy, combined, dist_3b, dr_3b);		            
 		}		
 	}
 
@@ -627,9 +615,18 @@ void PairCHIMES::compute(int eflag, int vflag)
 			std::fill(force_4b.begin(), force_4b.end(), 0.0) ;
 			std::fill(stensor.begin(), stensor.end(), 0.0) ;
 
+			std::fill(stensor0.begin(), stensor0.end(), 0.0) ;
+			std::fill(stensor1.begin(), stensor1.end(), 0.0) ;
+			std::fill(stensor2.begin(), stensor2.end(), 0.0) ;
+			std::fill(stensor3.begin(), stensor3.end(), 0.0) ;
+			std::fill(stensor4.begin(), stensor4.end(), 0.0) ;
+			std::fill(stensor5.begin(), stensor5.end(), 0.0) ;
+
 			energy = 0.0 ;	
 			
-			chimes_calculator.compute_4B( dist_4b, dr_4b, typ_idxs_4b, force_4b, stensor, energy, chimes_4btmp);
+			chimes_calculator.compute_4B( dist_4b, dr_4b, typ_idxs_4b, force_4b, stensor, stensor0, stensor1, stensor2, stensor3, stensor4, stensor5, energy, chimes_4btmp, fscalar);
+
+			std::vector<std::vector<double>> combined2 = {stensor0, stensor1, stensor2, stensor3, stensor4, stensor5};
 
 			for (idx=0; idx<3; idx++)
 			{
@@ -656,7 +653,7 @@ void PairCHIMES::compute(int eflag, int vflag)
             }
 			
 			if (evflag)
-				ev_tally_mb(4, atmidxlst, energy, fscalar, dist_4b, dr_4b);	
+				ev_tally_mb2(6, atmidxlst, energy, combined2, dist_4b, dr_4b);	
             
 		}
 	}
@@ -671,11 +668,11 @@ void PairCHIMES::set_chimes_type()
 {
 	int nmatches = 0;
 
-	for (int i=1; i<= atom->ntypes; i++) // Lammps indexing starts at 1
+	for (int i=1; i<= atom->ntypes; i++) 						// Lammps indexing starts at 1
 	{
-		for (int j=0; j<chimes_calculator.natmtyps; j++) // ChIMES indexing starts at 0
+		for (int j=0; j<chimes_calculator.natmtyps; j++) 			// ChIMES indexing starts at 0
 		{
-			if (abs(atom->mass[i] - chimes_calculator.masses[j]) < 1e-3) // Masses should match to at least 3 decimal places
+			if (abs(atom->mass[i] - chimes_calculator.masses[j]) < 1e-3)	// Masses should match to at least 3 decimal places
 			{
 				chimes_type.push_back(j);
 				nmatches++;
